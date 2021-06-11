@@ -381,6 +381,7 @@ var ERROR_CODES_BASE = 6777000;
 /*///*/     store.ERR_INVALID_OFFER_PRICE = ERROR_CODES_BASE + 30; // Error code indicating that the price you specified in App Store Connect is no longer valid.
 /*///*/     store.ERR_INVALID_SIGNATURE = ERROR_CODES_BASE + 31; // Error code indicating that the signature in a payment discount is not valid.
 /*///*/     store.ERR_MISSING_OFFER_PARAMS = ERROR_CODES_BASE + 32; // Error code indicating that parameters are missing in a payment discount.
+/*///*/     store.ERR_SET_BUNDLE_DETAILS = ERROR_CODES_BASE + 33; // Failed to set bundle details
 
 ///
 /// ### product states
@@ -3309,10 +3310,26 @@ InAppPurchase.prototype.load = function (productIds, success, error) {
  * @param {String} transactionId
  *    Identifier of the transaction to finish.
  *
+ * @param {Function} onSuccess (optional)
+ *    Callback function to invoke on successfully finishing transaction.
+ *
+ * @param {Function} onError (optional)
+ *    Callback function to invoke on failure finishing transaction.
+ *
  * You have to call this method manually except when using the autoFinish option.
  */
-InAppPurchase.prototype.finish = function (transactionId) {
-    exec('finishTransaction', [transactionId], noop, noop);
+InAppPurchase.prototype.finish = function (transactionId, onSuccess, onError) {
+    var success = function () {
+        log('successfully finished transaction '+transactionId);
+        if(onSuccess) protectCall(onSuccess, 'finish.success');
+    };
+    var error = function (errMessage) {
+        log('failed to finish transaction'+transactionId);
+        log(errMessage);
+        var message = 'Finish transaction: ' + errMessage;
+        if(onError) protectCall(onError, 'finish.error', store.ERR_FINISH, message);
+    };
+    exec('finishTransaction', [transactionId], success, error);
 };
 
 var pendingUpdates = [], pendingDownloadUpdates = [];
@@ -3424,13 +3441,15 @@ function parseReceiptArgs(args) {
     var bundleShortVersion = args[2];
     var bundleNumericVersion = args[3];
     var bundleSignature = args[4];
+    var payload = args[5];
     log('infoPlist: ' + bundleIdentifier + "," + bundleShortVersion + "," + bundleNumericVersion  + "," + bundleSignature);
     return {
         appStoreReceipt: base64,
         bundleIdentifier: bundleIdentifier,
         bundleShortVersion: bundleShortVersion,
         bundleNumericVersion: bundleNumericVersion,
-        bundleSignature: bundleSignature
+        bundleSignature: bundleSignature,
+        payload: payload
     };
 }
 
@@ -3478,6 +3497,25 @@ InAppPurchase.prototype.loadReceipts = function (callback, errorCb) {
 
     log('loading appStoreReceipt');
     exec('appStoreReceipt', [], loaded, error);
+};
+
+InAppPurchase.prototype.setBundleDetails = function (bundleIdentifier, bundleVersion, callback, errorCb) {
+
+    var that = this;
+    var data;
+
+    var success = function () {
+        protectCall(callback, 'setBundleDetails.callback');
+    };
+
+    var error = function (errMessage) {
+        log('load failed: ' + errMessage);
+        protectCall(that.options.error, 'options.error', store.ERR_SET_BUNDLE_DETAILS, 'Failed to set bundle details: ' + errMessage);
+        protectCall(errorCb, 'setBundleDetails.error', store.ERR_SET_BUNDLE_DETAILS, 'Failed to set bundle details: ' + errMessage);
+    };
+
+    log('setting bundle details');
+    exec('setBundleDetails', [bundleIdentifier, bundleVersion], success, error);
 };
 
 /*
